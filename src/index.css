@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-paper text-ink font-body;
+    transition: background-color 0.2s, color 0.2s;
+  }
+  .dark body, body.dark {
+    background-color: #0a0a0a;
+    color: #e8e8e3;
+  }
+}
+
+@layer components {
+  /* ── CARD ── */
+  .brutal-card {
+    border: 2px solid #0f0f0f;
+    border-radius: 16px;
+    box-shadow: 4px 4px 0px #0f0f0f;
+  }
+  .dark .brutal-card {
+    border-color: #333330;
+    box-shadow: 4px 4px 0px #333330;
+  }
+
+  /* ── BUTTON ── */
+  .brutal-btn {
+    @apply font-heading font-bold rounded-xl cursor-pointer inline-flex items-center justify-center;
+    border: 2px solid #0f0f0f;
+    box-shadow: 3px 3px 0px #0f0f0f;
+    transition: transform 0.1s, box-shadow 0.1s;
+    color: #0f0f0f;
+    background: #fafaf7;
+  }
+  .dark .brutal-btn {
+    border-color: #444441;
+    box-shadow: 3px 3px 0px #444441;
+    color: #e8e8e3;
+    background: #1a1a18;
+  }
+  .brutal-btn:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 5px 5px 0px #0f0f0f;
+  }
+  .dark .brutal-btn:hover {
+    box-shadow: 5px 5px 0px #444441;
+  }
+  .brutal-btn:active {
+    transform: translate(1px, 1px);
+    box-shadow: 1px 1px 0px #0f0f0f;
+  }
+  .brutal-btn.btn-signal {
+    background: #ff3b00 !important;
+    color: white !important;
+    border-color: #cc2f00 !important;
+    box-shadow: 3px 3px 0px #cc2f00 !important;
+  }
+  .brutal-btn.btn-signal:hover {
+    box-shadow: 5px 5px 0px #cc2f00 !important;
+  }
+
+  /* ── CHIP ── */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 2px solid #0f0f0f;
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-size: 11px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    color: #0f0f0f;
+  }
+  .dark .chip {
+    border-color: #444441;
+    color: #e8e8e3;
+  }
+
+  /* ── INPUT ── */
+  .brutal-input {
+    @apply w-full rounded-xl px-4 py-3 font-body focus:outline-none;
+    border: 2px solid #0f0f0f;
+    background: #ffffff;
+    color: #0f0f0f;
+  }
+  .dark .brutal-input {
+    border-color: #444441;
+    background: #1a1a18;
+    color: #e8e8e3;
+  }
+  .brutal-input:focus {
+    box-shadow: 3px 3px 0px #0f0f0f;
+  }
+  .dark .brutal-input:focus {
+    box-shadow: 3px 3px 0px #444441;
+  }
+  .brutal-input::placeholder {
+    color: rgba(15,15,15,0.35);
+  }
+  .dark .brutal-input::placeholder {
+    color: rgba(232,232,227,0.3);
+  }
+
+  /* ── AVATAR (CIRCLE) ── */
+  .avatar {
+    @apply rounded-full border-2 border-ink dark:border-dark-border flex items-center justify-center font-heading font-black text-ink dark:text-dark-text overflow-hidden flex-shrink-0;
+  }
+  .avatar.lg {
+    @apply w-24 h-24 text-4xl;
+  }
+  .avatar.sm {
+    @apply w-12 h-12 text-lg;
+  }
+
+  /* ── FRAME ANIMASYONLARI ── */
+  @keyframes rotate-worm {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @keyframes rotate-star {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @keyframes pulse-fire {
+    0%, 100% { box-shadow: 0 0 10px rgba(255, 59, 0, 0.5); }
+    50% { box-shadow: 0 0 20px rgba(255, 59, 0, 0.8); }
+  }
+
+  .frame-worm {
+    animation: rotate-worm 4s linear infinite;
+  }
+  .frame-star {
+    animation: rotate-star 3s linear infinite;
+  }
+  .frame-fire {
+    animation: pulse-fire 2s ease-in-out infinite;
+  }
+}
+
+/* ── BADGE (Notification) ── */
+.badge {
+  @apply absolute -top-2 -right-2 w-5 h-5 rounded-full bg-signal text-white text-xs font-heading font-bold flex items-center justify-center;
+}
