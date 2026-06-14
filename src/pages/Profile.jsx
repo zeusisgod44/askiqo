@@ -1,285 +1,227 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { PROFILE_EFFECTS } from '@/constants'
 import { ProfileEffect } from '@/components/ProfileEffects'
-import { CATEGORIES } from '@/constants'
-import { Upload, Settings, Edit2, Save, X, Loader2, Camera } from 'lucide-react'
+import { Loader2, Send, Mail, ArrowLeft, Crown } from 'lucide-react'
 
 export default function Profile() {
   const { username } = useParams()
+  const navigate = useNavigate()
   const { user } = useAuth()
 
   const [profile, setProfile] = useState(null)
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showSettings, setShowSettings] = useState(false)
-  const [bio, setBio] = useState('')
-  const [uploading, setUploading] = useState(false)
-  const [editingReply, setEditingReply] = useState(null)
-  const [replyText, setReplyText] = useState('')
+  const [showDMModal, setShowDMModal] = useState(false)
+  const [dmText, setDmText] = useState('')
+  const [dmLoading, setDmLoading] = useState(false)
+  const [isVip, setIsVip] = useState(false)
 
   useEffect(() => {
-    async function loadProfile() {
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('username', username)
-        .single()
+    async function load() {
+      try {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('username', username)
+          .single()
 
-      if (!profileData) {
-        setLoading(false)
-        return
+        if (!profileData) {
+          navigate('/')
+          return
+        }
+
+        setProfile(profileData)
+
+        // VIP kontrol et
+        if (profileData.vip_until) {
+          const vipExpiry = new Date(profileData.vip_until)
+          setIsVip(vipExpiry > new Date())
+        }
+
+        const { data: messagesData } = await supabase
+          .from('public_messages')
+          .select('*')
+          .eq('asked_by_user_id', profileData.id)
+          .eq('reply', null, { is: false })
+          .order('created_at', { ascending: false })
+
+        setMessages(messagesData || [])
+      } catch (err) {
+        console.error('Load error:', err)
+        navigate('/')
       }
-      setProfile(profileData)
-      setBio(profileData.bio || '')
-
-      const { data: messagesData } = await supabase
-        .from('public_messages')
-        .select('*')
-        .eq('to_user_id', profileData.id)
-        .eq('reply', null, { is: false })
-        .order('created_at', { ascending: false })
-
-      setMessages(messagesData || [])
       setLoading(false)
     }
-    loadProfile()
-  }, [username])
 
-  const handleAvatarUpload = async (e) => {
-    if (!user || !profile) return
-    const file = e.target.files?.[0]
-    if (!file) return
+    load()
+  }, [username, navigate])
 
-    // File boyutu kontrolü (5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Dosya çok büyük (max 5MB)')
-      return
-    }
+  const handleSendDM = async () => {
+    if (!dmText.trim() || !profile) return
 
-    setUploading(true)
+    setDmLoading(true)
 
     try {
-      // Eski dosyayı sil
-      if (profile.avatar_url) {
-        const oldFileName = profile.avatar_url.split('/').pop()
-        await supabase.storage
-          .from('avatars')
-          .remove([`${oldFileName}`])
-      }
+      await supabase.from('direct_messages').insert({
+        to_user_id: profile.id,
+        from_user_id: user?.id || null,
+        content: dmText.trim(),
+        is_anonymous: !user || !isVip,
+        is_read: false
+      })
 
-      // Yeni dosyayı yükle
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`
-
-      const { data, error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, file)
-
-      if (uploadError) throw uploadError
-
-      // Public URL'i al
-      const { data: publicUrl } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(fileName)
-
-      // Database'i güncelle
-      const { error: updateError } = await supabase
+      // Notification güncelle
+      await supabase
         .from('profiles')
-        .update({ avatar_url: publicUrl.publicUrl })
-        .eq('id', user.id)
+        .update({ has_unread_dms: true })
+        .eq('id', profile.id)
 
-      if (updateError) throw updateError
-
-      setProfile({ ...profile, avatar_url: publicUrl.publicUrl })
-      alert('Fotoğraf başarıyla yüklendi!')
-    } catch (error) {
-      console.error('Upload error:', error)
-      alert('Yükleme başarısız: ' + error.message)
+      setDmText('')
+      setShowDMModal(false)
+      alert('Mesaj gönderildi! ✅')
+    } catch (err) {
+      console.error('DM error:', err)
+      alert('Mesaj gönderilemedi')
     }
-    setUploading(false)
+
+    setDmLoading(false)
   }
 
-  const handleUpdateProfile = async () => {
-    if (!user) return
-    await supabase
-      .from('profiles')
-      .update({ bio })
-      .eq('id', user.id)
-    setProfile({ ...profile, bio })
-    setShowSettings(false)
-  }
-
-  const handleReply = async (messageId) => {
-    if (!replyText.trim() || !user) return
-    await supabase
-      .from('public_messages')
-      .update({ reply: replyText, replied_at: new Date().toISOString() })
-      .eq('id', messageId)
-
-    setMessages(prev =>
-      prev.map(m => m.id === messageId ? { ...m, reply: replyText } : m)
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 size={32} className="animate-spin" />
+      </div>
     )
-    setEditingReply(null)
-    setReplyText('')
   }
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-32">
-      <Loader2 size={32} className="animate-spin" />
-    </div>
-  )
-  if (!profile) return <div className="py-20 text-center"><p className="font-heading font-bold text-2xl">Kullanıcı bulunamadı</p></div>
-
-  const isOwner = user?.id === profile.id
+  if (!profile) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <p className="font-heading font-bold">Profil bulunamadı</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="max-w-2xl mx-auto py-10 space-y-8">
+    <div className="max-w-2xl mx-auto py-6">
+      <Link to="/feed" className="brutal-btn px-3 py-2 mb-6 inline-flex gap-2">
+        <ArrowLeft size={18} /> Geri
+      </Link>
 
-      {/* PROFILE HEADER */}
-      <div className="brutal-card bg-lavender dark:bg-dark-card2 p-8">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-          {/* Avatar with Effect */}
-          <div className="relative group">
-            <div className="avatar lg bg-butter dark:bg-dark-card relative">
-              {profile.avatar_url
-                ? <img src={profile.avatar_url} alt="" />
-                : profile.username?.[0]?.toUpperCase()
-              }
+      {/* Profil Header */}
+      <div className="brutal-card bg-white dark:bg-dark-card p-8 space-y-6 mb-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-4 flex-1">
+            <div className="avatar xl bg-butter dark:bg-dark-card2 relative">
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                profile.username?.[0]?.toUpperCase()
+              )}
               <ProfileEffect effectId={profile.active_effect} />
             </div>
-            {isOwner && (
-              <label
-                htmlFor="avatar-input"
-                className="absolute bottom-0 right-0 brutal-btn btn-signal p-2 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Fotoğrafı değiştir"
-              >
-                <Camera size={16} />
-              </label>
-            )}
-            <input
-              type="file"
-              id="avatar-input"
-              accept="image/*"
-              onChange={handleAvatarUpload}
-              disabled={uploading}
-              className="hidden"
-            />
-          </div>
-
-          <div className="flex-1">
-            <h1 className="font-heading font-black text-3xl tracking-tighter text-ink dark:text-dark-text">
-              @{profile.username}
-            </h1>
-            {profile.bio && <p className="font-body text-ink/65 dark:text-dark-muted mt-1">{profile.bio}</p>}
-            <div className="flex items-center gap-3 mt-2 flex-wrap text-sm">
-              <span className="text-signal font-heading font-bold">💰 {profile.coins || 0} coin</span>
-              <span className="text-ink/40 dark:text-dark-muted">📤 {messages.length} soru</span>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h1 className="font-heading font-black text-3xl">@{profile.username}</h1>
+                {isVip && <Crown size={24} className="text-yellow-500" title="VIP Üye" />}
+              </div>
+              <p className="font-body text-ink/60 dark:text-dark-muted mt-2">
+                {profile.bio || 'Bio yok'}
+              </p>
+              <p className="text-sm text-signal font-heading font-bold mt-2">
+                💰 {profile.coins} Coin
+              </p>
             </div>
           </div>
 
-          {isOwner && (
+          {user?.id !== profile.id && (
             <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="brutal-btn px-4 py-2 gap-2 text-sm"
+              onClick={() => setShowDMModal(true)}
+              className="brutal-btn btn-signal px-4 py-2 gap-2 flex-shrink-0"
             >
-              <Settings size={14} /> Düzenle
+              <Mail size={18} /> Mesaj
             </button>
           )}
         </div>
       </div>
 
-      {/* SETTINGS */}
-      {isOwner && showSettings && (
-        <div className="brutal-card bg-white dark:bg-dark-card p-6 space-y-4">
-          <h3 className="font-heading font-bold text-lg">Profili Düzenle</h3>
-
-          <div className="space-y-2">
-            <label className="font-heading font-bold text-sm">Bio</label>
-            <textarea
-              className="brutal-input resize-none h-16"
-              value={bio}
-              onChange={(e) => setBio(e.target.value.slice(0, 100))}
-              maxLength={100}
-            />
-            <p className="text-xs text-ink/40">{bio.length}/100</p>
-          </div>
-
-          <button onClick={handleUpdateProfile} className="brutal-btn btn-signal w-full py-2">
-            <Save size={16} /> Kaydet
-          </button>
-        </div>
-      )}
-
-      {uploading && (
-        <div className="brutal-card bg-butter dark:bg-dark-card2 p-4 flex items-center gap-2">
-          <Loader2 size={16} className="animate-spin" />
-          <p className="font-heading font-bold text-sm">Fotoğraf yükleniyor...</p>
-        </div>
-      )}
-
-      {/* MESSAGES */}
+      {/* Soruları */}
       <div className="space-y-4">
-        <h2 className="font-heading font-bold text-2xl">
-          Cevaplanan Sorular ({messages.length})
-        </h2>
+        <h2 className="font-heading font-bold text-2xl">Sorular ({messages.length})</h2>
+
         {messages.length === 0 ? (
           <div className="brutal-card bg-butter dark:bg-dark-card2 p-8 text-center">
-            <p className="font-heading font-bold text-lg">Henüz cevaplanan soru yok</p>
+            <p className="font-heading font-bold">Henüz soru yok</p>
           </div>
         ) : (
-          messages.map(m => (
-            <div key={m.id} className="brutal-card bg-white dark:bg-dark-card p-6 space-y-3">
-              <span className="chip text-xs">
-                {CATEGORIES.find(c => c.id === m.category)?.emoji}
-                {' '}
-                {CATEGORIES.find(c => c.id === m.category)?.name}
-              </span>
-              <p className="font-heading font-bold text-lg text-ink dark:text-dark-text">{m.content}</p>
-
-              {m.reply ? (
-                <div className="p-4 rounded-xl border-2 border-ink dark:border-dark-border bg-paper dark:bg-dark-card2">
-                  <p className="text-sm font-body text-ink dark:text-dark-text">{m.reply}</p>
-                </div>
-              ) : isOwner && editingReply !== m.id ? (
-                <button
-                  onClick={() => {
-                    setEditingReply(m.id)
-                    setReplyText('')
-                  }}
-                  className="brutal-btn px-3 py-1.5 text-xs gap-1"
-                >
-                  <Edit2 size={12} /> Cevapla
-                </button>
-              ) : editingReply === m.id && (
-                <div className="space-y-2">
-                  <textarea
-                    className="brutal-input resize-none h-16"
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    maxLength={300}
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleReply(m.id)}
-                      className="brutal-btn btn-signal px-3 py-1.5 text-xs flex-1"
-                    >
-                      <Save size={12} /> Gönder
-                    </button>
-                    <button
-                      onClick={() => setEditingReply(null)}
-                      className="brutal-btn px-3 py-1.5 text-xs"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
+          messages.map(msg => (
+            <div key={msg.id} className="brutal-card bg-white dark:bg-dark-card p-6">
+              <p className="font-body text-lg mb-3">{msg.content}</p>
+              {msg.reply && (
+                <div className="p-3 bg-signal/5 border-l-4 border-signal rounded">
+                  <p className="text-xs font-heading font-bold text-signal mb-1">✓ Cevap</p>
+                  <p className="font-body text-sm">{msg.reply}</p>
                 </div>
               )}
             </div>
           ))
         )}
       </div>
+
+      {/* DM Modal */}
+      {showDMModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="brutal-card bg-white dark:bg-dark-card p-8 max-w-md w-full space-y-4">
+            <h2 className="font-heading font-bold text-2xl">
+              @{profile.username}'a Mesaj Gönder
+            </h2>
+
+            <div className="bg-lavender dark:bg-dark-card2 p-3 rounded text-sm">
+              {user && isVip ? (
+                <p className="text-signal font-heading font-bold">✓ VIP - İsmim gözükecek</p>
+              ) : (
+                <p className="text-ink/60 dark:text-dark-muted">🔒 Anonim mesaj göndereceksin</p>
+              )}
+            </div>
+
+            <textarea
+              className="brutal-input resize-none h-32"
+              placeholder="Mesajını yaz..."
+              value={dmText}
+              onChange={(e) => setDmText(e.target.value)}
+              maxLength={500}
+            />
+
+            <p className="text-xs text-ink/40">{dmText.length}/500</p>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowDMModal(false)}
+                className="brutal-btn flex-1"
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleSendDM}
+                disabled={dmLoading || !dmText.trim()}
+                className="brutal-btn btn-signal flex-1 gap-2 disabled:opacity-50"
+              >
+                {dmLoading ? (
+                  <Loader2 size={18} className="animate-spin inline" />
+                ) : (
+                  <>
+                    <Send size={18} /> Gönder
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
