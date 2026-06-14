@@ -1,82 +1,106 @@
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { ArrowRight, Lock, MessageSquare, Zap } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { LogOut } from 'lucide-react'
 
 export default function Landing() {
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
+  const navigate = useNavigate()
+  const [profile, setProfile] = useState(null)
+
+  useEffect(() => {
+    if (!user) return
+
+    async function loadProfile() {
+      const { data } = await supabase
+        .from('profiles')
+        .select('username, avatar_url, is_vip')
+        .eq('id', user.id)
+        .single()
+
+      if (data) setProfile(data)
+    }
+
+    loadProfile()
+  }, [user])
 
   if (user) {
-    return null // Giriş yapıysa /feed'e yönlendir
+    navigate('/feed')
+    return null
   }
 
   return (
-    <div className="space-y-20 pb-16">
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
+      {/* Logo */}
+      <div className="mb-12 text-center">
+        <img 
+          src="/logo.png" 
+          alt="askiqo" 
+          className="h-32 mx-auto mb-8 object-contain"
+        />
+        <h1 className="font-heading font-black text-5xl mb-2">askiqo</h1>
+        <p className="text-lg text-ink/60 dark:text-dark-muted font-body">
+          Soru. Söyleşiler. Anonim.
+        </p>
+      </div>
 
-      {/* HERO */}
-      <section className="grid md:grid-cols-2 gap-10 md:gap-16 items-center pt-10 md:pt-16">
-        <div className="space-y-6">
-          <span className="chip"><Zap size={12} strokeWidth={3} /> yeni nesil soru platformu</span>
-          <h1 className="font-heading font-black text-5xl sm:text-6xl lg:text-7xl tracking-tighter leading-[0.93] text-ink dark:text-dark-text">
-            Sor.<br />Söylesinler.<br />
-            <span className="text-signal">Anonim.</span>
-          </h1>
-          <p className="font-body text-lg text-ink/60 dark:text-dark-muted max-w-md leading-relaxed">
-            Oyun, müzik, film, dizi, spordan insanların düşüncelerini merak ediyor musun? Profilini paylaş, sorular topla, anonim cevaplar al.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <Link to="/register" className="brutal-btn btn-signal px-6 py-3 gap-2">
-              Hemen Başla <ArrowRight size={18} strokeWidth={3} />
-            </Link>
-            <Link to="/login" className="brutal-btn px-6 py-3">Giriş Yap</Link>
-          </div>
-        </div>
-
-        <div className="relative select-none">
-          <div className="brutal-card bg-mint dark:bg-dark-card2 p-7 rotate-[-3deg]">
-            <span className="chip">anonim</span>
-            <p className="font-heading font-bold text-2xl mt-3">
-              En sevdiğin oyun nedir?
-            </p>
-            <div className="mt-4 p-4 rounded-xl border-2 border-ink dark:border-dark-border bg-white dark:bg-dark-card">
-              Elden Ring, hiç oynamadığım halde 😂
-            </div>
-          </div>
-          <div className="brutal-card bg-peach dark:bg-dark-card2 p-6 rotate-[4deg] mt-6 ml-16 md:ml-24">
-            <span className="chip">müzik</span>
-            <p className="font-heading font-bold text-xl mt-3">Gözüne kestirdiğin artist?</p>
-          </div>
-        </div>
-      </section>
-
-      {/* FEATURES */}
-      <section className="grid md:grid-cols-3 gap-6">
-        {[
-          { icon: Lock, title: 'Tam Anonim', desc: 'Sorular ve cevaplar tamamıyla anonim kalır.' },
-          { icon: MessageSquare, title: 'Kategoriler', desc: 'Oyun, müzik, film, dizi, spor ve daha fazla.' },
-          { icon: Zap, title: 'Coin Sistemi', desc: 'Sor ve cevapla, efektler satın al.' },
-        ].map(({ icon: Icon, title, desc }) => (
-          <div key={title} className="brutal-card bg-lavender dark:bg-dark-card2 p-7">
-            <Icon size={32} strokeWidth={2.5} className="text-ink dark:text-dark-text mb-4" />
-            <h3 className="font-heading font-bold text-2xl mb-2">{title}</h3>
-            <p className="font-body text-ink/60 dark:text-dark-muted">{desc}</p>
-          </div>
-        ))}
-      </section>
-
-      {/* BOTTOM CTA */}
-      <section className="brutal-card bg-ink dark:bg-dark-card text-paper p-10 md:p-14 text-center">
-        <h2 className="font-heading font-black text-4xl sm:text-5xl tracking-tighter mb-4">
-          Merak edilen olmak istiyorsan,<br />herkes merak eder.
-        </h2>
-        <p className="font-body text-lg text-paper/60 mb-8">Birkaç saniyede başla.</p>
+      {/* Main Buttons */}
+      <div className="flex flex-col gap-3 w-full max-w-sm mb-12">
+        <Link
+          to="/login"
+          className="brutal-btn py-4 text-lg font-heading font-bold text-center"
+        >
+          Giriş Yap
+        </Link>
         <Link
           to="/register"
-          className="brutal-btn btn-signal px-8 py-4 gap-2"
-          style={{ boxShadow: '4px 4px 0px rgba(255,255,255,0.25)' }}
+          className="brutal-btn btn-signal py-4 text-lg font-heading font-bold text-center"
         >
-          Kayıt Ol <ArrowRight size={18} strokeWidth={3} />
+          Kayıt Ol
         </Link>
-      </section>
+      </div>
+
+      {/* Features Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-2xl mb-12">
+        <div className="brutal-card bg-lavender dark:bg-dark-card2 p-6 text-center">
+          <p className="text-3xl mb-3">💬</p>
+          <h3 className="font-heading font-bold mb-2">Soru Sor</h3>
+          <p className="text-sm text-ink/60 dark:text-dark-muted">
+            Diğer kullanıcılara anonim olarak soru sor
+          </p>
+        </div>
+
+        <div className="brutal-card bg-lavender dark:bg-dark-card2 p-6 text-center">
+          <p className="text-3xl mb-3">👥</p>
+          <h3 className="font-heading font-bold mb-2">Söyleş</h3>
+          <p className="text-sm text-ink/60 dark:text-dark-muted">
+            Sorulara cevap ver ve tartış
+          </p>
+        </div>
+
+        <div className="brutal-card bg-lavender dark:bg-dark-card2 p-6 text-center">
+          <p className="text-3xl mb-3">🔒</p>
+          <h3 className="font-heading font-bold mb-2">Anonim</h3>
+          <p className="text-sm text-ink/60 dark:text-dark-muted">
+            Kimliğini gizli tut, özgürce konuş
+          </p>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="brutal-card bg-butter dark:bg-dark-card2 p-8 text-center w-full max-w-md">
+        <p className="text-sm text-ink/60 dark:text-dark-muted mb-3 font-heading font-bold">
+          askiqo'da neleri görebilirsin
+        </p>
+        <div className="space-y-2 text-left">
+          <p className="font-body">✓ Profil sayfası ve bio</p>
+          <p className="font-body">✓ Anonim sorular & cevaplar</p>
+          <p className="font-body">✓ VIP özel nicki rengini kişiselleştir</p>
+          <p className="font-body">✓ Tema seçeneği (koyu/açık)</p>
+          <p className="font-body">✓ Coin sistemi</p>
+        </div>
+      </div>
     </div>
   )
 }

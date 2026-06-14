@@ -1,23 +1,36 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { PROFILE_EFFECTS } from '@/constants'
 import { ProfileEffect } from '@/components/ProfileEffects'
-import { Loader2, Send, Mail, ArrowLeft, Crown } from 'lucide-react'
+import { Loader2, Send, Edit, ArrowLeft, Crown } from 'lucide-react'
+
+// RGB Renk animasyonu
+const getAnimatedColor = (baseColor, offset = 0) => {
+  const time = (Date.now() / 10 + offset) % 360
+  const hsl = `hsl(${time}, 100%, 50%)`
+  return hsl
+}
 
 export default function Profile() {
   const { username } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
 
   const [profile, setProfile] = useState(null)
-  const [messages, setMessages] = useState([])
+  const [bioQuestions, setBioQuestions] = useState([])
+  const [myQuestions, setMyQuestions] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showDMModal, setShowDMModal] = useState(false)
-  const [dmText, setDmText] = useState('')
-  const [dmLoading, setDmLoading] = useState(false)
-  const [isVip, setIsVip] = useState(false)
+  const [showBioModal, setShowBioModal] = useState(false)
+  const [bioText, setBioText] = useState('')
+  const [bioLoading, setBioLoading] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editBio, setEditBio] = useState('')
+  const [showVipShop, setShowVipShop] = useState(false)
+  const [answerText, setAnswerText] = useState({})
+  const [animationColor, setAnimationColor] = useState('hsl(0, 100%, 50%)')
 
   useEffect(() => {
     async function load() {
@@ -34,21 +47,29 @@ export default function Profile() {
         }
 
         setProfile(profileData)
+        setEditBio(profileData.bio || '')
 
-        // VIP kontrol et
-        if (profileData.vip_until) {
-          const vipExpiry = new Date(profileData.vip_until)
-          setIsVip(vipExpiry > new Date())
-        }
-
-        const { data: messagesData } = await supabase
-          .from('public_messages')
+        const { data: questionsData } = await supabase
+          .from('bio_questions')
           .select('*')
-          .eq('asked_by_user_id', profileData.id)
-          .eq('reply', null, { is: false })
+          .eq('to_user_id', profileData.id)
           .order('created_at', { ascending: false })
 
-        setMessages(messagesData || [])
+        setBioQuestions(questionsData || [])
+
+        if (user?.id === profileData.id) {
+          loadMyQuestions(user.id)
+
+          if (location.state?.scrollToTab === 'sent') {
+            setTimeout(() => {
+              const elem = document.getElementById(`my-answer-section-${location.state.scrollToQuestion}`)
+              if (elem) {
+                elem.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                elem.classList.add('animate-pulse')
+              }
+            }, 500)
+          }
+        }
       } catch (err) {
         console.error('Load error:', err)
         navigate('/')
@@ -57,37 +78,92 @@ export default function Profile() {
     }
 
     load()
-  }, [username, navigate])
+  }, [username, navigate, user, location])
 
-  const handleSendDM = async () => {
-    if (!dmText.trim() || !profile) return
+  // Animasyon loop
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const time = (Date.now() / 10) % 360
+      setAnimationColor(`hsl(${time}, 100%, 50%)`)
+    }, 50)
+    return () => clearInterval(interval)
+  }, [])
 
-    setDmLoading(true)
+  const loadMyQuestions = async (userId) => {
+    try {
+      const { data } = await supabase
+        .from('bio_questions')
+        .select('*')
+        .eq('from_user_id', userId)
+        .order('created_at', { ascending: false })
+
+      setMyQuestions(data || [])
+    } catch (err) {
+      console.error('Load my questions error:', err)
+    }
+  }
+
+  const handleSendBioQuestion = async () => {
+    if (!bioText.trim() || !profile) return
+
+    setBioLoading(true)
 
     try {
-      await supabase.from('direct_messages').insert({
+      const { data: newQuestion } = await supabase.from('bio_questions').insert({
         to_user_id: profile.id,
         from_user_id: user?.id || null,
-        content: dmText.trim(),
-        is_anonymous: !user || !isVip,
-        is_read: false
-      })
+        question: bioText.trim(),
+        is_anonymous: !user,
+        is_answered: false
+      }).select()
 
-      // Notification güncelle
-      await supabase
-        .from('profiles')
-        .update({ has_unread_dms: true })
-        .eq('id', profile.id)
-
-      setDmText('')
-      setShowDMModal(false)
-      alert('Mesaj gönderildi! ✅')
+      setBioText('')
+      setShowBioModal(false)
+      setMyQuestions(prev => [...(newQuestion || []), ...prev])
+      alert('Soru gönderildi! ✅')
     } catch (err) {
-      console.error('DM error:', err)
-      alert('Mesaj gönderilemedi')
+      console.error('Question error:', err)
+      alert('Soru gönderilemedi')
     }
 
-    setDmLoading(false)
+    setBioLoading(false)
+  }
+
+  const handleUpdateBio = async () => {
+    if (!profile) return
+
+    try {
+      await supabase
+        .from('profiles')
+        .update({ bio: editBio })
+        .eq('id', profile.id)
+
+      setProfile(prev => ({ ...prev, bio: editBio }))
+      setIsEditing(false)
+      alert('Bio güncellendi! ✅')
+    } catch (err) {
+      alert('Bio güncellenemedi')
+    }
+  }
+
+  const handleAnswerQuestion = async (questionId) => {
+    const answer = answerText[questionId]?.trim()
+    if (!answer) return
+
+    try {
+      await supabase
+        .from('bio_questions')
+        .update({ answer, is_answered: true })
+        .eq('id', questionId)
+
+      setBioQuestions(prev =>
+        prev.map(q => q.id === questionId ? { ...q, answer, is_answered: true } : q)
+      )
+      setAnswerText(prev => ({ ...prev, [questionId]: '' }))
+      alert('Cevap verildi! ✅')
+    } catch (err) {
+      alert('Cevap kaydedilemedi')
+    }
   }
 
   if (loading) {
@@ -106,111 +182,234 @@ export default function Profile() {
     )
   }
 
+  const isOwnProfile = user?.id === profile.id
+  const nickColor = profile.nick_color || '#8B5CF6'
+
+  const allQuestions = [
+    ...bioQuestions.map(q => ({ ...q, type: 'received' })),
+    ...myQuestions.map(q => ({ ...q, type: 'sent' }))
+  ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
   return (
     <div className="max-w-2xl mx-auto py-6">
-      <Link to="/feed" className="brutal-btn px-3 py-2 mb-6 inline-flex gap-2">
-        <ArrowLeft size={18} /> Geri
-      </Link>
+      <div className="flex items-center justify-between mb-6">
+        <Link to="/feed" className="brutal-btn px-3 py-2 inline-flex gap-2">
+          <ArrowLeft size={18} /> Geri
+        </Link>
+      </div>
 
       {/* Profil Header */}
       <div className="brutal-card bg-white dark:bg-dark-card p-8 space-y-6 mb-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-4 flex-1">
-            <div className="avatar xl bg-butter dark:bg-dark-card2 relative">
+            <div className="w-16 h-16 bg-butter dark:bg-dark-card2 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden relative">
               {profile.avatar_url ? (
                 <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
               ) : (
-                profile.username?.[0]?.toUpperCase()
+                <span className="text-xl font-bold">{profile.username?.[0]?.toUpperCase()}</span>
               )}
               <ProfileEffect effectId={profile.active_effect} />
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <h1 className="font-heading font-black text-3xl">@{profile.username}</h1>
-                {isVip && <Crown size={24} className="text-yellow-500" title="VIP Üye" />}
+                <h1 
+                  className="font-heading font-black text-3xl"
+                  style={{ color: profile.is_vip ? animationColor : 'inherit' }}
+                >
+                  @{profile.username}
+                </h1>
+                {profile.is_vip && <Crown size={24} className="text-yellow-500" />}
               </div>
-              <p className="font-body text-ink/60 dark:text-dark-muted mt-2">
-                {profile.bio || 'Bio yok'}
-              </p>
-              <p className="text-sm text-signal font-heading font-bold mt-2">
+              
+              <div className="mt-3">
+                {isOwnProfile && isEditing ? (
+                  <div className="space-y-2">
+                    <textarea
+                      className="brutal-input resize-none h-20 text-sm"
+                      value={editBio}
+                      onChange={(e) => setEditBio(e.target.value)}
+                      maxLength={200}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleUpdateBio}
+                        className="brutal-btn btn-signal text-sm flex-1"
+                      >
+                        Kaydet
+                      </button>
+                      <button
+                        onClick={() => setIsEditing(false)}
+                        className="brutal-btn text-sm flex-1"
+                      >
+                        İptal
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="font-body text-ink/60 dark:text-dark-muted">
+                      {profile.bio || 'Bio yok'}
+                    </p>
+                    {isOwnProfile && (
+                      <button
+                        onClick={() => setIsEditing(true)}
+                        className="text-xs text-signal font-heading font-bold mt-2 hover:underline flex items-center gap-1"
+                      >
+                        <Edit size={14} /> Bio Düzenle
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <p className="text-sm text-signal font-heading font-bold mt-3">
                 💰 {profile.coins} Coin
               </p>
             </div>
           </div>
 
-          {user?.id !== profile.id && (
-            <button
-              onClick={() => setShowDMModal(true)}
-              className="brutal-btn btn-signal px-4 py-2 gap-2 flex-shrink-0"
-            >
-              <Mail size={18} /> Mesaj
-            </button>
-          )}
+          <div className="flex flex-col gap-2 flex-shrink-0">
+            {isOwnProfile && !profile.is_vip && (
+              <button
+                onClick={() => setShowVipShop(true)}
+                className="brutal-btn btn-signal px-3 py-2 gap-2 text-sm"
+              >
+                <Crown size={16} /> VIP Satın Al
+              </button>
+            )}
+            {isOwnProfile && profile.is_vip && (
+              <Link
+                to="/effects"
+                className="brutal-btn btn-signal px-3 py-2 gap-2 text-sm"
+              >
+                🎨 Efektler
+              </Link>
+            )}
+            {!isOwnProfile && (
+              <button
+                onClick={() => setShowBioModal(true)}
+                className="brutal-btn btn-signal px-3 py-2 gap-2 text-sm"
+              >
+                <Send size={16} /> Soru Sor
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Soruları */}
+      {/* Sorular */}
       <div className="space-y-4">
-        <h2 className="font-heading font-bold text-2xl">Sorular ({messages.length})</h2>
+        <h2 className="font-heading font-bold text-2xl">Sorular ({allQuestions.length})</h2>
 
-        {messages.length === 0 ? (
-          <div className="brutal-card bg-butter dark:bg-dark-card2 p-8 text-center">
+        {allQuestions.length === 0 ? (
+          <div className="brutal-card bg-butter dark:bg-dark-card2 p-8 text-center space-y-4">
             <p className="font-heading font-bold">Henüz soru yok</p>
+            <p className="text-sm text-ink/50">İlk soruyu sen sor!</p>
+            {!isOwnProfile && (
+              <button
+                onClick={() => setShowBioModal(true)}
+                className="brutal-btn btn-signal w-full py-2"
+              >
+                Soru Sor
+              </button>
+            )}
           </div>
         ) : (
-          messages.map(msg => (
-            <div key={msg.id} className="brutal-card bg-white dark:bg-dark-card p-6">
-              <p className="font-body text-lg mb-3">{msg.content}</p>
-              {msg.reply && (
-                <div className="p-3 bg-signal/5 border-l-4 border-signal rounded">
-                  <p className="text-xs font-heading font-bold text-signal mb-1">✓ Cevap</p>
-                  <p className="font-body text-sm">{msg.reply}</p>
+          allQuestions.map(q => (
+            <div
+              key={q.id}
+              id={q.type === 'sent' ? `my-answer-section-${q.id}` : `answer-section-${q.id}`}
+              className={`brutal-card p-6 space-y-3 ${
+                q.is_answered ? 'bg-white dark:bg-dark-card' : 'bg-lavender dark:bg-dark-card2'
+              }`}
+            >
+              <div>
+                {q.type === 'sent' ? (
+                  <p className="font-heading font-bold text-sm text-signal">
+                    🔵 Sorduğum: @{q.to_user_id}
+                  </p>
+                ) : (
+                  <p className="font-heading font-bold text-sm text-signal">
+                    {q.is_anonymous ? '🔒 Anonim' : `👤 @${q.from_user_id}`}
+                  </p>
+                )}
+                <p className="font-body text-lg mt-2">{q.question}</p>
+              </div>
+
+              {q.is_answered ? (
+                <div className="p-4 bg-signal/5 border-l-4 border-signal rounded">
+                  <p className="text-xs font-heading font-bold text-signal mb-2">✓ Cevap</p>
+                  <p className="font-body text-sm">{q.answer}</p>
                 </div>
+              ) : q.type === 'received' && isOwnProfile ? (
+                <div className="space-y-2 pt-3 border-t border-ink/10">
+                  <textarea
+                    placeholder="Cevap yaz..."
+                    maxLength={200}
+                    value={answerText[q.id] || ''}
+                    onChange={(e) => setAnswerText(prev => ({ ...prev, [q.id]: e.target.value }))}
+                    className="brutal-input resize-none h-20 text-sm"
+                  />
+                  <button
+                    onClick={() => handleAnswerQuestion(q.id)}
+                    disabled={!answerText[q.id]?.trim()}
+                    className="brutal-btn btn-signal w-full py-2 text-sm disabled:opacity-50"
+                  >
+                    Cevapla
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-ink/40 italic">
+                  {q.type === 'sent' ? '⏳ Cevap bekleniyor...' : 'Henüz cevap yok'}
+                </p>
               )}
             </div>
           ))
         )}
+
+        {!isOwnProfile && allQuestions.length > 0 && (
+          <div className="text-center pt-4">
+            <button
+              onClick={() => setShowBioModal(true)}
+              className="brutal-btn btn-signal px-6 py-2"
+            >
+              Soru Sor
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* DM Modal */}
-      {showDMModal && (
+      {/* Bio Soru Modal */}
+      {showBioModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="brutal-card bg-white dark:bg-dark-card p-8 max-w-md w-full space-y-4">
             <h2 className="font-heading font-bold text-2xl">
-              @{profile.username}'a Mesaj Gönder
+              @{profile.username} Sorusu
             </h2>
 
-            <div className="bg-lavender dark:bg-dark-card2 p-3 rounded text-sm">
-              {user && isVip ? (
-                <p className="text-signal font-heading font-bold">✓ VIP - İsmim gözükecek</p>
-              ) : (
-                <p className="text-ink/60 dark:text-dark-muted">🔒 Anonim mesaj göndereceksin</p>
-              )}
-            </div>
-
             <textarea
-              className="brutal-input resize-none h-32"
-              placeholder="Mesajını yaz..."
-              value={dmText}
-              onChange={(e) => setDmText(e.target.value)}
-              maxLength={500}
+              className="brutal-input resize-none h-24"
+              placeholder="Sorunuzu yazın..."
+              value={bioText}
+              onChange={(e) => setBioText(e.target.value)}
+              maxLength={200}
             />
 
-            <p className="text-xs text-ink/40">{dmText.length}/500</p>
+            <p className="text-xs text-ink/40">{bioText.length}/200</p>
 
             <div className="flex gap-2">
               <button
-                onClick={() => setShowDMModal(false)}
+                onClick={() => setShowBioModal(false)}
                 className="brutal-btn flex-1"
               >
                 İptal
               </button>
               <button
-                onClick={handleSendDM}
-                disabled={dmLoading || !dmText.trim()}
+                onClick={handleSendBioQuestion}
+                disabled={bioLoading || !bioText.trim()}
                 className="brutal-btn btn-signal flex-1 gap-2 disabled:opacity-50"
               >
-                {dmLoading ? (
+                {bioLoading ? (
                   <Loader2 size={18} className="animate-spin inline" />
                 ) : (
                   <>
@@ -222,6 +421,99 @@ export default function Profile() {
           </div>
         </div>
       )}
+
+      {/* VIP Shop Modal */}
+      {showVipShop && (
+        <VipShopModal profile={profile} setProfile={setProfile} onClose={() => setShowVipShop(false)} />
+      )}
+    </div>
+  )
+}
+
+function VipShopModal({ profile, setProfile, onClose }) {
+  const [buying, setBuying] = useState(null)
+
+  const vipPlans = [
+    { id: 1, name: '1 Ay VIP', price: 100, days: 30 },
+    { id: 3, name: '3 Ay VIP', price: 250, days: 90 },
+    { id: 12, name: '1 Yıl VIP', price: 800, days: 365 }
+  ]
+
+  const handleBuyVip = async (plan) => {
+    if (profile.coins < plan.price) {
+      alert('Yeterli coin\'in yok!')
+      return
+    }
+
+    setBuying(plan.id)
+
+    try {
+      const expiryDate = new Date()
+      expiryDate.setDate(expiryDate.getDate() + plan.days)
+
+      await supabase
+        .from('profiles')
+        .update({
+          is_vip: true,
+          vip_until: expiryDate.toISOString(),
+          coins: profile.coins - plan.price
+        })
+        .eq('id', profile.id)
+
+      setProfile(prev => ({
+        ...prev,
+        is_vip: true,
+        vip_until: expiryDate.toISOString(),
+        coins: prev.coins - plan.price
+      }))
+
+      alert('VIP Satın Alındı! 👑')
+      onClose()
+    } catch (err) {
+      alert('Satın alma başarısız')
+    }
+
+    setBuying(null)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="brutal-card bg-white dark:bg-dark-card p-8 max-w-md w-full space-y-4">
+        <div className="text-center">
+          <Crown size={48} className="mx-auto text-yellow-500 mb-2" />
+          <h2 className="font-heading font-black text-2xl">VIP Paketleri</h2>
+        </div>
+
+        <div className="space-y-2">
+          {vipPlans.map(plan => (
+            <button
+              key={plan.id}
+              onClick={() => handleBuyVip(plan)}
+              disabled={buying === plan.id || profile.coins < plan.price}
+              className="brutal-btn w-full p-4 disabled:opacity-50 text-left"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-heading font-bold">{plan.name}</p>
+                  <p className="text-xs text-ink/60">VIP {plan.days} Gün</p>
+                </div>
+                <p className="font-heading font-bold text-signal">{plan.price} 💰</p>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <p className="text-xs text-center text-ink/40">
+          Senin Coin: {profile.coins}
+        </p>
+
+        <button
+          onClick={onClose}
+          className="brutal-btn w-full py-3"
+        >
+          Kapat
+        </button>
+      </div>
     </div>
   )
 }

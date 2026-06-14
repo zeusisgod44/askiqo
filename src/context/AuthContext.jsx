@@ -7,7 +7,6 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [emailVerified, setEmailVerified] = useState(false)
-  const [unreadMessages, setUnreadMessages] = useState(0)
 
   useEffect(() => {
     const initAuth = async () => {
@@ -16,7 +15,6 @@ export function AuthProvider({ children }) {
         setUser(data.session.user)
         const isVerified = data.session.user.email_confirmed_at !== null
         setEmailVerified(isVerified)
-        loadUnreadMessages(data.session.user.id)
       }
       setLoading(false)
     }
@@ -29,30 +27,14 @@ export function AuthProvider({ children }) {
         if (session?.user) {
           const isVerified = session.user.email_confirmed_at !== null
           setEmailVerified(isVerified)
-          loadUnreadMessages(session.user.id)
         } else {
           setEmailVerified(false)
-          setUnreadMessages(0)
         }
       }
     )
 
     return () => listener?.subscription.unsubscribe()
   }, [])
-
-  const loadUnreadMessages = async (userId) => {
-    try {
-      const { count } = await supabase
-        .from('direct_messages')
-        .select('id', { count: 'exact' })
-        .eq('to_user_id', userId)
-        .eq('is_read', false)
-      
-      setUnreadMessages(count || 0)
-    } catch (err) {
-      console.error('Load unread error:', err)
-    }
-  }
 
   const signUp = async (email, password, username) => {
     try {
@@ -70,7 +52,9 @@ export function AuthProvider({ children }) {
         id: data.user.id,
         username,
         coins: 0,
-        active_effect: 'none'
+        active_effect: 'none',
+        is_vip: false,
+        nick_color: '#8B5CF6'
       })
 
       return { data }
@@ -90,10 +74,6 @@ export function AuthProvider({ children }) {
 
       const isVerified = data.user.email_confirmed_at !== null
       setEmailVerified(isVerified)
-      
-      if (isVerified) {
-        loadUnreadMessages(data.user.id)
-      }
 
       return { data, isVerified }
     } catch (err) {
@@ -105,7 +85,6 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut()
     setUser(null)
     setEmailVerified(false)
-    setUnreadMessages(0)
   }
 
   const resendVerificationEmail = async (email) => {
@@ -126,7 +105,6 @@ export function AuthProvider({ children }) {
         user,
         loading,
         emailVerified,
-        unreadMessages,
         signUp,
         signIn,
         signOut,
